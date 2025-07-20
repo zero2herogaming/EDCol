@@ -28,6 +28,13 @@
     </button>
   </div>
 
+  <!-- Credentials Display -->
+  <div id="credsDisplay" class="w-full max-w-4xl p-2 bg-zinc-800 dark:bg-zinc-700 rounded text-sm text-zinc-300">
+    <!-- Filled by JS: shows current CMDR name and API key -->
+    <span id="currentCreds">Loading credentials...</span>
+    <button id="editCreds" class="ml-4 text-teal-400 underline">Edit</button>
+  </div>
+
   <!-- Credentials dialog -->
   <dialog id="keyDialog" class="rounded lg:w-96 dark:bg-zinc-800 bg-zinc-100 p-4">
     <h2 class="text-lg font-bold mb-2">Enter Inara credentials</h2>
@@ -72,8 +79,8 @@
 
 <script>
 /* ---------- configuration ---------- */
-const proxyUrl = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';  // your Cloudflare Worker URL
-const LOCAL_KEY = 'inaraCreds';                                              // storage key
+const proxyUrl = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
+const LOCAL_KEY = 'inaraCreds';
 
 /* ---------- helpers ---------- */
 const $ = sel => document.querySelector(sel);
@@ -84,33 +91,50 @@ const table  = $('#results');
 /* ---------- theme toggle ---------- */
 $('#themeToggle').onclick = () => document.documentElement.classList.toggle('dark');
 
-/* ---------- creds dialog ---------- */
-function needCreds() {
-  const dlg = $('#keyDialog');
-  dlg.showModal();
-  $('#saveKey').onclick = () => {
-    const obj = {
-      cmdr: $('#cmdrInput').value.trim(),
-      key:  $('#keyInput').value.trim()
-    };
-    if (obj.cmdr && obj.key) {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(obj));
-      dlg.close();
-    }
-  };
+/* ---------- display current creds ---------- */
+function renderCreds() {
+  const creds = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
+  if (creds.cmdr && creds.key) {
+    $('#currentCreds').textContent = `CMDR: ${creds.cmdr}  |  API Key: ${creds.key}`;
+  } else {
+    $('#currentCreds').textContent = 'No credentials set.';
+  }
 }
-if (!localStorage.getItem(LOCAL_KEY)) needCreds();
 
+$('#editCreds').onclick = () => showCredDialog();
+
+/* ---------- creds dialog ---------- */
+function showCredDialog() {
+  const creds = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
+  $('#cmdrInput').value = creds.cmdr || '';
+  $('#keyInput').value = creds.key || '';
+  $('#keyDialog').showModal();
+}
+
+$('#saveKey').onclick = () => {
+  const obj = { cmdr: $('#cmdrInput').value.trim(), key: $('#keyInput').value.trim() };
+  if (obj.cmdr && obj.key) {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(obj));
+    $('#keyDialog').close();
+    renderCreds();
+  }
+};
+
+if (!localStorage.getItem(LOCAL_KEY)) showCredDialog();
 $('#resetCred').onclick = () => { localStorage.removeItem(LOCAL_KEY); location.reload(); };
 
 /* ---------- Inara proxy wrapper ---------- */
 async function inaraReq(events) {
   const creds = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
   const body  = {
-    header: { appName: 'SysFinder', appVersion: '1.0', isDeveloped: true },
-    events,
-    apiKey: creds.key,            // <-- corrected field name
-    commanderName: creds.cmdr
+    header: {
+      appName: 'SysFinder',
+      appVersion: '1.0',
+      isDeveloped: true,
+      apiKey: creds.key,
+      commanderName: creds.cmdr
+    },
+    events
   };
   return axios.post(proxyUrl, body);
 }
@@ -118,7 +142,8 @@ async function inaraReq(events) {
 /* ---------- main search ---------- */
 $('#queryForm').addEventListener('submit', async e => {
   e.preventDefault();
-  tbody.innerHTML = ''; table.classList.add('hidden');
+  tbody.innerHTML = '';
+  table.classList.add('hidden');
   const ref   = $('#refSystem').value.trim();
   const R     = +$('#radius').value || 30;
   const maxLs = +$('#maxLs').value || 2000;
@@ -126,13 +151,10 @@ $('#queryForm').addEventListener('submit', async e => {
 
   try {
     // 1) sphere search
-    const sphere = await inaraReq([{
-      eventName: 'searchSystemsInSphere',
-      eventData: { systemName: ref, searchRadius: R, considerAlef: true }
-    }]);
-    const sphereData = sphere.data.events?.[0];
-    if (sphereData?.eventStatus !== 'OK') throw new Error('API error (bad key?)');
-    const systems = sphereData.eventData.systems || [];
+    const sphere = await inaraReq([{ eventName: 'searchSystemsInSphere', eventData: { systemName: ref, searchRadius: R, considerAlef: true } }]);
+    const s0 = sphere.data.events?.[0];
+    if (s0?.eventStatus !== 'OK') throw new Error('API error (bad key?)');
+    const systems = s0.eventData.systems || [];
     if (!systems.length) { status.textContent = '⚠ no systems in radius'; return; }
 
     // 2) filter colonisable
@@ -140,35 +162,25 @@ $('#queryForm').addEventListener('submit', async e => {
     let hits = [], scanned = 0;
 
     for (const sys of candidates) {
-      scanned++;
-      if (scanned % 10 === 0) status.textContent = `scanning ${scanned}/${candidates.length}…`;
+      scanned++; if (scanned % 10 === 0) status.textContent = `scanning ${scanned}/${candidates.length}…`;
 
-      const bodiesRes = await inaraReq([{
-        eventName: 'getStarSystemBodies',
-        eventData: { systemName: sys.name }
-      }]);
-      const bodiesData = bodiesRes.data.events?.[0];
-      if (bodiesData?.eventStatus !== 'OK') continue;
+      const bodiesRes = await inaraReq([{ eventName: 'getStarSystemBodies', eventData: { systemName: sys.name } }]);
+      const b0 = bodiesRes.data.events?.[0]; if (b0?.eventStatus !== 'OK') continue;
 
-      const bodies = bodiesData.eventData.bodies || [];
+      const bodies = b0.eventData.bodies || [];
       const ww = bodies.filter(b => b.type === 'Water world' || b.subType?.includes('Earth-like'));
       if (!ww.length) continue;
 
       const ls = ww[0].distanceToArrival ?? 1e9;
       if (ls > maxLs) continue;
 
-      hits.push({
-        name: sys.name,
-        distance: sys.distance,
-        ls,
-        ww: ww.map(x => x.name.replace(sys.name + ' ', '')).join(', ')
-      });
+      hits.push({ name: sys.name, distance: sys.distance, ls, ww: ww.map(x => x.name.replace(sys.name + ' ', '')).join(', ') });
     }
 
     if (!hits.length) { status.textContent = '✅ API OK – but no matching systems.'; return; }
 
     // 3) render
-    hits.sort((a, b) => a.distance - b.distance);
+    hits.sort((a,b) => a.distance - b.distance);
     hits.forEach(h => {
       const tr = document.createElement('tr');
       tr.className = 'odd:dark:bg-zinc-800 odd:bg-zinc-100 hover:dark:bg-zinc-700 hover:bg-zinc-300';
@@ -179,8 +191,7 @@ $('#queryForm').addEventListener('submit', async e => {
         </td>
         <td class="p-2 text-center">${h.distance.toFixed(1)}</td>
         <td class="p-2 text-center">${Math.round(h.ls)}</td>
-        <td class="p-2">${h.ww}</td>
-      `;
+        <td class="p-2">${h.ww}</td>`;
       tbody.appendChild(tr);
     });
 
@@ -191,6 +202,9 @@ $('#queryForm').addEventListener('submit', async e => {
     status.textContent = `❌ ${err.message}`;
   }
 });
+
+// Initial render of creds
+renderCreds();
 </script>
 </body>
 </html>
