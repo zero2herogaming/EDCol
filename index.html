@@ -1,81 +1,196 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="en" class="dark">
 <head>
-  <meta charset="UTF-8">
-  <title>Colonizable System Finder</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Elite System Finder – Inara Live</title>
+
+  <!-- libs -->
+  <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- minimal light‑mode fallback -->
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #121212;
-      color: #e0e0e0;
-      padding: 2em;
-    }
-    h1, h2 {
-      color: #90caf9;
-    }
-    input, button {
-      padding: 0.6em;
-      font-size: 1em;
-      margin: 0.5em 0;
-      background: #1e1e1e;
-      color: #e0e0e0;
-      border: 1px solid #333;
-      border-radius: 4px;
-    }
-    .system {
-      background-color: #1e1e1e;
-      border: 1px solid #333;
-      padding: 1em;
-      margin: 1em 0;
-      border-radius: 4px;
-    }
-    .highlight {
-      color: #ffb74d;
-    }
-    .error {
-      color: #ef5350;
-    }
+    html.light .dark\:bg-zinc-900 { background: #fafafa; }
+    .transition { transition: all .2s; }
   </style>
 </head>
-<body>
-  <h1>Elite Dangerous Colonizable System Finder</h1>
-  <p>Enter the name of a known system (e.g., "Col 285 Sector YG-I b24-6") to find nearby systems with colonization potential.</p>
-  <input id="systemInput" placeholder="Enter system name...">
-  <button onclick="findSystems()">Search</button>
 
-  <div id="results"></div>
+<body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-zinc-900 min-h-screen flex flex-col items-center gap-6 p-4">
 
-  <script>
-    const mockSystems = [
-      { name: "Col 285 Sector YG-I b24-6", dist: 0, features: ["Water World", "Close distance (41 Ls)", "Good naming"] },
-      { name: "Col 285 Sector VY-O a49-3", dist: 23.88, features: ["Water World", "25 Ls", "Good naming"] },
-      { name: "HIP 90590", dist: 9.3, features: ["2x Water World", "<1300 Ls", "HIP tag"] },
-      { name: "Col 285 Sector EI-G b25-3", dist: 43.4, features: ["2x Water World", "<70 Ls"] },
-      { name: "HIP 94275", dist: 21.27, features: ["Water World", "<500 Ls"] }
-    ];
+  <!-- Header -->
+  <div class="w-full max-w-4xl flex justify-between items-center">
+    <h1 class="text-2xl md:text-3xl font-bold text-teal-500">
+      Elite&nbsp;System&nbsp;Finder <span class="text-xs align-top">v2 (Inara)</span>
+    </h1>
+    <button id="themeToggle" class="p-2 rounded bg-zinc-800 dark:bg-zinc-700 hover:bg-zinc-600 transition" title="Toggle light/dark">
+      🌙
+    </button>
+  </div>
 
-    function findSystems() {
-      const input = document.getElementById("systemInput").value.toLowerCase();
-      const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = "";
+  <!-- Credentials dialog -->
+  <dialog id="keyDialog" class="rounded lg:w-96 dark:bg-zinc-800 bg-zinc-100 p-4">
+    <h2 class="text-lg font-bold mb-2">Enter Inara credentials</h2>
+    <p class="text-sm mb-3 dark:text-zinc-300 text-zinc-600">
+      Your CMDR name and API key are stored <strong>only</strong> in your browser (localStorage).
+      Clear them anytime with the ⚙ button.
+    </p>
+    <input id="cmdrInput" placeholder="CMDR name" class="w-full p-2 mb-2 rounded bg-zinc-900 dark:bg-zinc-900 text-zinc-100" />
+    <input id="keyInput" placeholder="Inara API key" class="w-full p-2 mb-4 rounded bg-zinc-900 dark:bg-zinc-900 text-zinc-100" />
+    <button id="saveKey" class="bg-teal-500 hover:bg-teal-600 px-4 py-2 rounded">Save</button>
+  </dialog>
 
-      const exactMatch = mockSystems.find(sys => sys.name.toLowerCase() === input);
-      const nearMatches = mockSystems.filter(sys => sys.name.toLowerCase().includes(input) || sys.dist <= 25);
+  <!-- Search form -->
+  <form id="queryForm" class="flex flex-col md:flex-row gap-3 items-center w-full max-w-xl">
+    <input id="refSystem" required placeholder="Reference system (e.g. Sol)"
+           class="flex-1 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600" />
+    <input id="radius" type="number" value="30" min="5" max="150" step="1"
+           class="w-20 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600" />
+    <input id="maxLs" type="number" value="2000" min="10" step="10" title="Max arrival Ls"
+           class="w-24 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600" />
+    <button class="px-4 py-2 rounded bg-teal-500 hover:bg-teal-600 transition">Search</button>
+    <button id="resetCred" type="button" title="Reset stored API key"
+            class="px-3 py-2 rounded bg-zinc-700 hover:bg-zinc-600">⚙</button>
+  </form>
 
-      if (exactMatch) {
-        resultsDiv.innerHTML += `<h2 class="highlight">Colonizable target found: ${exactMatch.name}</h2>`;
-        resultsDiv.innerHTML += `<div class="system">Distance: ${exactMatch.dist} Ly<br>Features:<ul>${exactMatch.features.map(f => `<li>${f}</li>`).join('')}</ul></div>`;
-      } else if (nearMatches.length > 0) {
-        resultsDiv.innerHTML += `<h2 class="highlight">No exact match. Here are promising nearby systems:</h2>`;
-        nearMatches.forEach(sys => {
-          resultsDiv.innerHTML += `<div class="system"><strong>${sys.name}</strong><br>Distance: ${sys.dist} Ly<br>Features:<ul>${sys.features.map(f => `<li>${f}</li>`).join('')}</ul></div>`;
-        });
-      } else {
-        resultsDiv.innerHTML = `<p class="error">No results found. (Make sure the spelling is correct or try a nearby system.)</p>`;
-        resultsDiv.innerHTML += `<p>✅ Tool is working — fallback systems not found within 25 Ly.<br>Try e.g. <code>Col 285 Sector</code> or <code>HIP 90590</code></p>`;
-      }
+  <div id="status" class="text-sm h-6"></div>
+
+  <!-- Results -->
+  <div class="w-full overflow-x-auto">
+    <table id="results" class="w-full text-sm hidden">
+      <thead>
+        <tr class="dark:bg-zinc-800 bg-zinc-200">
+          <th class="p-2 text-left">System</th>
+          <th class="p-2">Dist (ly)</th>
+          <th class="p-2">Arr Ls</th>
+          <th class="p-2">Water / ELWs</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+/* ---------- configuration ---------- */
+const proxyUrl = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';  // your Cloudflare Worker URL
+const LOCAL_KEY = 'inaraCreds';                                              // storage key
+
+/* ---------- helpers ---------- */
+const $ = sel => document.querySelector(sel);
+const tbody = $('#results tbody');
+const status = $('#status');
+const table  = $('#results');
+
+/* ---------- theme toggle ---------- */
+$('#themeToggle').onclick = () => document.documentElement.classList.toggle('dark');
+
+/* ---------- creds dialog ---------- */
+function needCreds() {
+  const dlg = $('#keyDialog');
+  dlg.showModal();
+  $('#saveKey').onclick = () => {
+    const obj = {
+      cmdr: $('#cmdrInput').value.trim(),
+      key:  $('#keyInput').value.trim()
+    };
+    if (obj.cmdr && obj.key) {
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(obj));
+      dlg.close();
     }
-  </script>
+  };
+}
+if (!localStorage.getItem(LOCAL_KEY)) needCreds();
+
+$('#resetCred').onclick = () => { localStorage.removeItem(LOCAL_KEY); location.reload(); };
+
+/* ---------- Inara proxy wrapper ---------- */
+async function inaraReq(events) {
+  const creds = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
+  const body  = {
+    header: { appName: 'SysFinder', appVersion: '1.0', isDeveloped: true },
+    events,
+    key: creds.key,
+    commanderName: creds.cmdr
+  };
+  return axios.post(proxyUrl, body);
+}
+
+/* ---------- main search ---------- */
+$('#queryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  tbody.innerHTML = ''; table.classList.add('hidden');
+  const ref   = $('#refSystem').value.trim();
+  const R     = +$('#radius').value || 30;
+  const maxLs = +$('#maxLs').value || 2000;
+  status.textContent = '⏳ querying…';
+
+  try {
+    // 1) sphere search
+    const sphere = await inaraReq([{
+      eventName: 'searchSystemsInSphere',
+      eventData: { systemName: ref, searchRadius: R, considerAlef: true }
+    }]);
+    const sphereData = sphere.data.events?.[0];
+    if (sphereData?.eventStatus !== 'OK') throw new Error('API error (bad key?)');
+    const systems = sphereData.eventData.systems || [];
+    if (!systems.length) { status.textContent = '⚠ no systems in radius'; return; }
+
+    // 2) filter colonisable
+    const candidates = systems.filter(s => s.stationsCount === 0 && s.factionsCount === 0);
+    let hits = [], scanned = 0;
+
+    for (const sys of candidates) {
+      scanned++;
+      if (scanned % 10 === 0) status.textContent = `scanning ${scanned}/${candidates.length}…`;
+
+      const bodiesRes = await inaraReq([{
+        eventName: 'getStarSystemBodies',
+        eventData: { systemName: sys.name }
+      }]);
+      const bodiesData = bodiesRes.data.events?.[0];
+      if (bodiesData?.eventStatus !== 'OK') continue;
+
+      const bodies = bodiesData.eventData.bodies || [];
+      const ww = bodies.filter(b => b.type === 'Water world' || b.subType?.includes('Earth-like'));
+      if (!ww.length) continue;
+
+      const ls = ww[0].distanceToArrival ?? 1e9;
+      if (ls > maxLs) continue;
+
+      hits.push({
+        name: sys.name,
+        distance: sys.distance,
+        ls,
+        ww: ww.map(x => x.name.replace(sys.name + ' ', '')).join(', ')
+      });
+    }
+
+    if (!hits.length) { status.textContent = '✅ API OK – but no matching systems.'; return; }
+
+    // 3) render
+    hits.sort((a, b) => a.distance - b.distance);
+    hits.forEach(h => {
+      const tr = document.createElement('tr');
+      tr.className = 'odd:dark:bg-zinc-800 odd:bg-zinc-100 hover:dark:bg-zinc-700 hover:bg-zinc-300';
+      tr.innerHTML = `
+        <td class="p-2">
+          <a class="underline" target="_blank"
+             href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}">${h.name}</a>
+        </td>
+        <td class="p-2 text-center">${h.distance.toFixed(1)}</td>
+        <td class="p-2 text-center">${Math.round(h.ls)}</td>
+        <td class="p-2">${h.ww}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    table.classList.remove('hidden');
+    status.textContent = `✅ API OK – ${hits.length} systems found.`;
+  } catch (err) {
+    console.error(err);
+    status.textContent = `❌ ${err.message}`;
+  }
+});
+</script>
 </body>
 </html>
