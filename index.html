@@ -1,168 +1,94 @@
 <!doctype html>
 <html lang="en" class="dark">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Elite System Finder – Inara Live</title>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Elite System Finder – Debug</title>
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    html.light .dark\:bg-zinc-900 { background: #fafafa; }
-    .transition { transition: all .2s; }
+    html.light .dark\:bg-zinc-900 { background:#fafafa }
+    .transition { transition:all .2s }
   </style>
 </head>
-<body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-zinc-900 min-h-screen flex flex-col items-center gap-6 p-4">
+<body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-black min-h-screen p-4">
 
-  <!-- Header -->
-  <div class="w-full max-w-4xl flex justify-between items-center">
-    <h1 class="text-2xl md:text-3xl font-bold text-teal-500">
-      Elite System Finder v2 (Inara)
-    </h1>
-    <button id="themeToggle" class="p-2 rounded bg-zinc-800 hover:bg-zinc-600 transition" title="Toggle light/dark">🌙</button>
+  <h1 class="text-2xl font-bold text-teal-500">Elite System Finder – Debug</h1>
+
+  <!-- Credentials -->
+  <div>
+    <label>CMDR Name: <input id="cmdr" class="border p-1" /></label>
+    <label>API Key:   <input id="key"   class="border p-1" style="width:300px" /></label>
+    <button id="save" class="bg-teal-500 px-3 py-1 rounded">Save</button>
+    <button id="clear" class="bg-zinc-700 px-2 py-1 rounded">Clear</button>
+  </div>
+  <div id="credsDisplay" class="mt-2 text-sm text-zinc-600"></div>
+
+  <!-- Search form -->
+  <div class="mt-4">
+    <input id="system" placeholder="System (e.g. Sol)" class="border p-1" />
+    <input id="radius" type="number" value="30" class="border p-1 w-16" />
+    <button id="go" class="bg-teal-500 px-3 py-1 rounded">Search</button>
   </div>
 
-  <!-- Credentials Display -->
-  <div id="credsDisplay" class="w-full max-w-4xl p-2 bg-zinc-800 rounded text-sm text-zinc-300">
-    <span id="currentCreds">Loading credentials…</span>
-    <button id="editCreds" class="ml-4 text-teal-400 underline">Edit</button>
-  </div>
-
-  <!-- Credentials Dialog -->
-  <dialog id="keyDialog" class="rounded lg:w-96 bg-zinc-100 text-black p-4">
-    <h2 class="text-lg font-bold mb-2">Enter Inara credentials</h2>
-    <p class="text-sm mb-3">Stored only in your browser. Clear with the ⚙ button.</p>
-    <input id="cmdrInput" placeholder="CMDR name" class="w-full p-2 mb-2 border rounded" />
-    <input id="keyInput" placeholder="Inara API key" class="w-full p-2 mb-4 border rounded" />
-    <button id="saveKey" class="bg-teal-500 hover:bg-teal-600 px-4 py-2 rounded">Save</button>
-  </dialog>
-
-  <!-- Search Form -->
-  <form id="queryForm" class="flex flex-col md:flex-row gap-3 items-center w-full max-w-xl">
-    <input id="refSystem" required placeholder="Reference system (e.g. Sol)"
-           class="flex-1 p-2 border rounded" />
-    <input id="radius" type="number" value="30" min="5" max="150" step="1"
-           class="w-20 p-2 border rounded" />
-    <input id="maxLs" type="number" value="2000" min="10" step="10" title="Max arrival Ls"
-           class="w-24 p-2 border rounded" />
-    <button class="px-4 py-2 bg-teal-500 hover:bg-teal-600 rounded">Search</button>
-    <button id="resetCred" type="button" title="Reset credentials"
-            class="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 rounded">⚙</button>
-  </form>
-
-  <div id="status" class="text-sm h-6"></div>
-
-  <!-- Results -->
-  <div class="w-full overflow-x-auto">
-    <table id="results" class="w-full text-sm hidden">
-      <thead>
-        <tr class="bg-zinc-200 dark:bg-zinc-800">
-          <th class="p-2 text-left">System</th>
-          <th class="p-2">Dist (ly)</th>
-          <th class="p-2">Arr Ls</th>
-          <th class="p-2">Water / ELWs</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+  <div id="status" class="mt-2 text-sm"></div>
+  <pre id="debug" class="mt-4 p-2 bg-zinc-200 dark:bg-zinc-800 overflow-auto"></pre>
 
 <script>
-const proxyUrl = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
-const LOCAL_KEY = 'inaraCreds';
+const proxy = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
+const STORAGE = 'inaraCreds';
 
-const $ = s => document.querySelector(s);
-const tbody = $('#results tbody'), status = $('#status'), table = $('#results');
-
-// Theme toggle
-$('#themeToggle').onclick = () => document.documentElement.classList.toggle('dark');
-
-// Render credentials
-function renderCreds() {
-  const c = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
-  if(c.cmdr && c.key) {
-    $('#currentCreds').textContent = `CMDR: ${c.cmdr} | API Key: ${c.key}`;
-  } else {
-    $('#currentCreds').textContent = 'No credentials set.';
-  }
+function showCreds() {
+  const c = JSON.parse(localStorage.getItem(STORAGE)||'{}');
+  $('#credsDisplay').textContent = c.cmdr ? 
+    `CMDR: ${c.cmdr} | Key: ${c.key}` : 'No credentials saved.';
 }
-$('#editCreds').onclick = () => showCredDialog();
-
-// Show creds dialog
-function showCredDialog(){
-  const c = JSON.parse(localStorage.getItem(LOCAL_KEY) || '{}');
-  $('#cmdrInput').value = c.cmdr||'';
-  $('#keyInput').value = c.key||'';
-  $('#keyDialog').showModal();
-}
-$('#saveKey').onclick = ()=>{
-  const obj = {cmdr:$('#cmdrInput').value.trim(),key:$('#keyInput').value.trim()};
-  if(obj.cmdr&&obj.key){ localStorage.setItem(LOCAL_KEY,JSON.stringify(obj)); $('#keyDialog').close(); renderCreds(); }
+$('#save').onclick = () => {
+  localStorage.setItem(STORAGE, JSON.stringify({
+    cmdr: $('#cmdr').value.trim(),
+    key:  $('#key').value.trim()
+  }));
+  showCreds();
 };
-if(!localStorage.getItem(LOCAL_KEY)) showCredDialog();
-$('#resetCred').onclick = ()=>{localStorage.removeItem(LOCAL_KEY);location.reload();};
+$('#clear').onclick = () => { localStorage.removeItem(STORAGE); showCreds(); };
+if (localStorage.getItem(STORAGE)) {
+  const c = JSON.parse(localStorage.getItem(STORAGE));
+  $('#cmdr').value = c.cmdr; $('#key').value = c.key;
+}
+showCreds();
 
-// Inara proxy wrapper
-async function inaraReq(events){
-  const c = JSON.parse(localStorage.getItem(LOCAL_KEY)||'{}');
-  const body = {
-    header: { appName:'SysFinder', appVersion:'1.0', isDeveloped:true },
-    events,
-    key: c.key,               // << correct top‑level key field
-    commanderName: c.cmdr     // << correct top‑level commanderName
-  };
-  console.log('→ Request:',body);
-  const res = await axios.post(proxyUrl, body);
-  console.log('← Response:',res.data);
-  return res;
+function $(s){return document.querySelector(s)}
+
+async function callInara(events) {
+  const c = JSON.parse(localStorage.getItem(STORAGE)||'{}');
+  const body = { header:{appName:'Debug',appVersion:'1.0',isDeveloped:true}, events,
+    key:c.key, commanderName:c.cmdr };
+  console.log('REQUEST BODY →', body);
+  const res = await axios.post(proxy, body);
+  console.log('RAW RESPONSE ←', res.data);
+  return res.data;
 }
 
-// Main search
-$('#queryForm').addEventListener('submit', async e=>{
-  e.preventDefault(); tbody.innerHTML=''; table.classList.add('hidden');
-  const ref = $('#refSystem').value.trim(), R=+$('#radius').value||30, maxLs=+$('#maxLs').value||2000;
-  status.textContent='⏳ querying…';
+$('#go').onclick = async () => {
+  $('#status').textContent = '⏳ querying…';
+  $('#debug').textContent = '';
   try {
-    const sphere = await inaraReq([{ eventName:'searchSystemsInSphere', eventData:{systemName:ref,searchRadius:R,considerAlef:true}}]);
-    const s0 = sphere.data.events[0];
-    if(s0.eventStatus!=='OK') throw new Error('API error (bad key?)');
-    const syslist = s0.eventData.systems||[];
-    if(!syslist.length){ status.textContent='⚠ no systems in radius'; return; }
-
-    const cand = syslist.filter(s=>s.stationsCount===0&&s.factionsCount===0);
-    let hits=[],cnt=0;
-    for(const sys of cand){
-      cnt++; if(cnt%10===0) status.textContent=`scanning ${cnt}/${cand.length}…`;
-      const bodies = await inaraReq([{eventName:'getStarSystemBodies',eventData:{systemName:sys.name}}]);
-      const b0 = bodies.data.events[0];
-      if(b0.eventStatus!=='OK') continue;
-      const list = b0.eventData.bodies||[];
-      const ww = list.filter(b=>b.type==='Water world'||b.subType?.includes('Earth-like'));
-      if(!ww.length) continue;
-      const ls = ww[0].distanceToArrival||1e9;
-      if(ls>maxLs) continue;
-      hits.push({name:sys.name,d:sys.distance,ls,ww:ww.map(x=>x.name.replace(sys.name+' ','')).join(', ')});
-    }
-    if(!hits.length){ status.textContent='✅ API OK – but no matching systems.'; return; }
-    hits.sort((a,b)=>a.d-b.d);
-    hits.forEach(h=>{
-      const tr=document.createElement('tr'); tr.className='odd:bg-zinc-100 odd:dark:bg-zinc-800 hover:bg-zinc-300 hover:dark:bg-zinc-700';
-      tr.innerHTML = `
-        <td class="p-2"><a class="underline" target="_blank" href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}">${h.name}</a></td>
-        <td class="p-2 text-center">${h.d.toFixed(1)}</td>
-        <td class="p-2 text-center">${Math.round(h.ls)}</td>
-        <td class="p-2">${h.ww}</td>`;
-      tbody.appendChild(tr);
-    });
-    table.classList.remove('hidden');
-    status.textContent = `✅ API OK – ${hits.length} systems found.`;
-  } catch(err) {
+    // 1) sphere
+    const sp = await callInara([{
+      eventName:'searchSystemsInSphere',
+      eventData:{systemName:$('#system').value,searchRadius:+$('#radius').value}
+    }]);
+    if (!sp.events || !sp.events[0]) throw Error('Missing sp.events[0]');
+    const evt = sp.events[0];
+    $('#debug').textContent += JSON.stringify(evt, null, 2) + '\n\n';
+    if (evt.eventStatus!=='OK') throw Error('Status ≠ OK: '+evt.eventStatus);
+    const syss = evt.eventData.systems;
+    if (!Array.isArray(syss)) throw Error('systems not array');
+    $('#status').textContent = `🔍 Found ${syss.length} systems in radius.`;
+  } catch (err) {
     console.error(err);
-    status.textContent = `❌ ${err.message}`;
+    $('#status').textContent = '❌ '+err.message;
   }
-});
-
-// initial creds render
-renderCreds();
+};
 </script>
 </body>
 </html>
