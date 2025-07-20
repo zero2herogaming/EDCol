@@ -2,30 +2,41 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Elite Finder — Debug (Header Key)</title>
+  <title>Elite Finder – Debug (Header Key)</title>
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family: sans-serif; padding: 1rem; }
-    input, button { margin-right: .5rem; }
-    pre { background: #f0f0f0; padding: 1rem; max-height: 300px; overflow:auto; }
+    body { font-family:sans-serif; padding:1rem; background:#111; color:#eee; }
+    input, button { margin-right:.5rem; }
+    pre { background:#222; padding:1rem; overflow:auto; color:#0f0; }
+    label { display:inline-block; margin-bottom:.5rem; }
   </style>
 </head>
 <body>
 
-  <h1>Elite Finder – Debug (Header Key)</h1>
+  <h1 style="color:#0af">Elite Finder – Debug</h1>
 
+  <!-- Credentials -->
   <div>
-    <label>CMDR: <input id="cmdr" placeholder="zero2hero"/></label>
-    <label>Key:  <input id="key" style="width:300px" placeholder="abcd1234…"/></label>
+    <label>CMDR:
+      <input id="cmdr" placeholder="yourCommander"/>
+    </label>
+    <label>API Key:
+      <input id="key" style="width:300px" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"/>
+    </label>
     <button id="save">Save</button>
     <button id="clear">Clear</button>
   </div>
-  <p id="creds" style="color:#666"></p>
+  <p id="creds" style="color:#888"></p>
 
+  <!-- Search -->
   <div>
-    <input id="system" placeholder="System (Sol)" />
-    <input id="radius" type="number" value="30" style="width:60px"/>
+    <label>System:
+      <input id="system" placeholder="Sol"/>
+    </label>
+    <label>Radius:
+      <input id="radius" type="number" value="30" style="width:60px"/>
+    </label>
     <button id="go">Search</button>
   </div>
 
@@ -33,66 +44,82 @@
   <pre id="debug"></pre>
 
 <script>
-const WORKER = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
-const LSKEY  = 'inaraCreds';
+const WORKER_URL = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
+const STORAGE_KEY = 'inaraCreds';
 
-function $(s){return document.querySelector(s);}
 function showCreds(){
-  const c=JSON.parse(localStorage.getItem(LSKEY)||'{}');
-  $('p#creds').textContent = c.cmdr ? `Using CMDR=${c.cmdr} Key=${c.key}` : 'No creds saved';
+  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+  $('p#creds').textContent = c.cmdr
+    ? `Using CMDR="${c.cmdr}"  API Key="${c.key}"`
+    : 'No credentials saved.';
 }
+
 $('#save').onclick = ()=>{
-  localStorage.setItem(LSKEY,JSON.stringify({cmdr:$('#cmdr').value, key:$('#key').value}));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    cmdr: $('#cmdr').value.trim(),
+    key:  $('#key').value.trim()
+  }));
   showCreds();
 };
+
 $('#clear').onclick = ()=>{
-  localStorage.removeItem(LSKEY);
+  localStorage.removeItem(STORAGE_KEY);
   showCreds();
 };
-if(localStorage.getItem(LSKEY)){
-  const c=JSON.parse(localStorage.getItem(LSKEY));
-  $('#cmdr').value=c.cmdr; $('#key').value=c.key;
+
+if(localStorage.getItem(STORAGE_KEY)){
+  const c = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  $('#cmdr').value = c.cmdr;
+  $('#key').value  = c.key;
 }
 showCreds();
 
 async function callInara(events){
-  const c=JSON.parse(localStorage.getItem(LSKEY)||'{}');
-  const req = {
+  const creds = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+  const payload = {
     header: {
       appName: 'Debug',
       appVersion: '1.0',
       isDeveloped: true,
-      apiKey: c.key,             // ← must be here
-      commanderName: c.cmdr      // ← and here
+      apiKey: creds.key,            // ← must be here
+      commanderName: creds.cmdr     // ← must be here
     },
     events
   };
-  console.log('REQUEST BODY →', req);
-  const res = await axios.post(WORKER, req);
-  console.log('RAW RESPONSE ←', res.data);
+  console.log('→ REQUEST PAYLOAD:', payload);
+  const res = await axios.post(WORKER_URL, payload);
+  console.log('← RAW RESPONSE:', res.data);
   return res.data;
 }
 
 $('#go').onclick = async ()=>{
-  $('#status').textContent='Querying…';
-  $('#debug').textContent='';
-  try{
-    const r = await callInara([{
-      eventName:'searchSystemsInSphere',
-      eventData:{systemName:$('#system').value, searchRadius:+$('#radius').value}
+  $('#status').textContent = '⏳ querying…';
+  $('#debug').textContent  = '';
+  try {
+    // 1) searchSystemsInSphere
+    const result = await callInara([{
+      eventName: 'searchSystemsInSphere',
+      eventData: {
+        systemName: $('#system').value,
+        searchRadius: +$('#radius').value
+      }
     }]);
-    // Dump the first event
-    if(r.events && r.events[0]){
-      $('#debug').textContent = JSON.stringify(r.events[0],null,2);
-      $('#status').textContent = 'Got eventStatus='+r.events[0].eventStatus;
-    } else {
-      throw new Error('No events in response');
+
+    $('#debug').textContent = JSON.stringify(result, null, 2);
+
+    if(!result.events || !result.events[0]){
+      throw new Error('Still no events array returned');
     }
-  }catch(err){
+
+    const evt = result.events[0];
+    $('#status').textContent = `eventStatus: ${evt.eventStatus} – ${evt.eventStatusText || ''}`;
+  } catch(err){
     console.error(err);
-    $('#status').textContent='Error: '+err.message;
+    $('#status').textContent = '❌ ' + err.message;
   }
 };
+
+function $(s){ return document.querySelector(s); }
 </script>
 </body>
 </html>
