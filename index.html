@@ -59,7 +59,6 @@
           const res = await axios.post(WORKER_URL, payload, { headers: { 'Content-Type': 'application/json' } });
           console.log('Inara API Response:', JSON.stringify(res.data, null, 2)); // Pretty-print for debugging
           if (res.status !== 200) throw new Error(`Worker request failed with status ${res.status}`);
-          if (!res.data.events || !res.data.events[0]) throw new Error('Invalid API response format');
           return res.data;
         } catch (err) {
           throw new Error(`API request failed: ${err.message}`);
@@ -87,12 +86,19 @@
             eventData: { systemName: ref, searchRadius: radius, considerAlef: true }
           }]);
 
-          const ev0 = sphereRes.events[0];
-          if (!ev0 || ev0.eventStatus !== 200) {
-            const errorMsg = ev0?.eventStatusText || 'Unknown error';
-            if (errorMsg.includes('API key')) {
-              throw new Error('Invalid or expired API key. Contact Inara to renew.');
-            } else if (errorMsg.includes('rate limit')) {
+          // Check response structure
+          if (!sphereRes.header) {
+            throw new Error('Invalid API response: Missing header');
+          }
+          const ev0 = sphereRes.events && sphereRes.events[0];
+          if (!ev0) {
+            throw new Error('Invalid API response: No events returned');
+          }
+          if (ev0.eventStatus !== 200) {
+            const errorMsg = ev0.eventStatusText || 'Unknown error';
+            if (errorMsg.toLowerCase().includes('api key')) {
+              throw new Error('Invalid or expired API key. Contact Inara to renew: https://inara.cz/api/');
+            } else if (errorMsg.toLowerCase().includes('rate limit')) {
               throw new Error('Rate limit exceeded. Try a smaller radius or wait a few minutes.');
             } else {
               throw new Error(`Failed to fetch systems: ${errorMsg}`);
@@ -116,9 +122,9 @@
               eventName: 'getStarSystemBodies',
               eventData: { systemName: sys.name }
             }]);
-            await delay(1000); // 1s delay to avoid rate limits
+            await delay(1500); // 1.5s delay to avoid rate limits
 
-            const bev = bodiesRes.events[0];
+            const bev = bodiesRes.events && bodiesRes.events[0];
             if (!bev || bev.eventStatus !== 200) {
               console.log(`Body fetch failed for ${sys.name}: ${bev?.eventStatusText || 'No event data'}`);
               continue;
