@@ -2,145 +2,151 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Elite Finder – Debug (Header Key)</title>
+  <title>Elite System Finder</title>
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family:sans-serif; padding:1rem; background:#111; color:#eee; }
-    input, button { margin-right:.5rem; }
-    pre { background:#222; padding:1rem; max-height:300px; overflow:auto; color:#0f0; }
-    label { display:inline-block; margin-bottom:.5rem; }
-    .btn { padding:.25rem .5rem; border-radius:.25rem; cursor:pointer; }
-    .btn-save { background:#0a0; color:#000; }
-    .btn-clear { background:#444; }
-    .btn-search { background:#0af; }
-    .disabled { background:#555; cursor:not-allowed; }
-    .warn { color:#f55; }
+    body {font-family:sans-serif;padding:1rem;background:#111;color:#eee;}
+    input, button {margin-right:.5rem;}
+    table {width:100%;border-collapse:collapse;margin-top:1rem;}
+    th, td {padding:.5rem;border:1px solid #444;}
+    th {background:#222;}
+    tr:hover {background:#222;}
+    a {color:#0af; text-decoration:underline;}
   </style>
 </head>
 <body>
 
-  <h1 style="color:#0af">Elite Finder – Debug</h1>
+  <h1 class="text-2xl font-bold text-teal-400">Elite System Finder</h1>
 
-  <!-- Credentials -->
-  <div>
-    <label>CMDR:
-      <input id="cmdr" placeholder="yourCommander"/>
-    </label>
-    <label>API Key:
-      <input id="key" style="width:300px" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"/>
-    </label>
-    <button id="save" class="btn btn-save">Save Creds</button>
-    <button id="clear" class="btn btn-clear">Clear Creds</button>
+  <!-- Search form -->
+  <div class="mt-4">
+    <input id="system" placeholder="Reference system (e.g. Sol)" class="p-2 rounded bg-[#222] border border-[#444] w-64" />
+    <input id="radius" type="number" value="30" min="5" max="150"
+           class="p-2 rounded bg-[#222] border border-[#444] w-20" />
+    <input id="maxLs" type="number" value="2000" min="10"
+           class="p-2 rounded bg-[#222] border border-[#444] w-24" />
+    <button id="go" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 rounded">Search</button>
   </div>
-  <p id="creds" style="color:#888"></p>
 
-  <!-- Search -->
-  <div>
-    <label>System:
-      <input id="system" placeholder="Sol"/>
-    </label>
-    <label>Radius:
-      <input id="radius" type="number" value="30" style="width:60px"/>
-    </label>
-    <button id="go" class="btn btn-search disabled" disabled>Search</button>
+  <div id="status" class="mt-2 text-sm"></div>
+
+  <div id="results-wrap" class="overflow-x-auto">
+    <table id="results" class="hidden text-sm">
+      <thead>
+        <tr><th>System</th><th>Dist (ly)</th><th>Arr Ls</th><th>Water / ELWs</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </div>
-  <p id="warn" class="warn"></p>
-  <p id="status"></p>
-  <pre id="debug"></pre>
 
 <script>
-const WORKER_URL = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
-const STORAGE_KEY = 'inaraCreds';
+(async()=>{
+  // ─── CONFIG ────────────────────────────────────────────────────────────────
+  const WORKER_URL     = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
+  const COMMANDER_NAME = 'zero2hero';              // ← your CMDR here
+  const API_KEY        = '6twkf7ayfokk0wccoc448wog8sgsw4o0kgkkow4'; // ← your key here
 
-function $(s){return document.querySelector(s);}
-function showCreds(){
-  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-  if(c.cmdr && c.key){
-    $('p#creds').textContent = `Using CMDR="${c.cmdr}"   Key="${c.key}"`;
-    enableSearch();
-  } else {
-    $('p#creds').textContent = 'No credentials saved.';
-    disableSearch();
+  const $ = q=>document.querySelector(q);
+  const status = $('#status');
+  const table  = $('#results');
+  const tbody  = table.querySelector('tbody');
+
+  async function inaraReq(events) {
+    const payload = {
+      header: {
+        appName: 'SysFinder',
+        appVersion: '1.0',
+        isDeveloped: true,
+        apiKey:        API_KEY,
+        commanderName: COMMANDER_NAME
+      },
+      events
+    };
+    const res = await axios.post(WORKER_URL, payload);
+    return res.data;
   }
-}
 
-$('#save').onclick = ()=>{
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    cmdr: $('#cmdr').value.trim(),
-    key: $('#key').value.trim()
-  }));
-  showCreds();
-};
+  $('#go').onclick = async ()=>{
+    const ref   = $('#system').value.trim();
+    const R     = +$('#radius').value||30;
+    const maxLs = +$('#maxLs').value||2000;
+    if(!ref) { status.textContent='⚠️ Please enter a reference system'; return; }
 
-$('#clear').onclick = ()=>{
-  localStorage.removeItem(STORAGE_KEY);
-  showCreds();
-};
+    status.textContent = '⏳ querying…';
+    tbody.innerHTML = ''; table.classList.add('hidden');
 
-if(localStorage.getItem(STORAGE_KEY)){
-  const c = JSON.parse(localStorage.getItem(STORAGE_KEY));
-  $('#cmdr').value = c.cmdr;
-  $('#key').value  = c.key;
-}
-showCreds();
+    try {
+      // 1) find all systems in sphere
+      const sph = await inaraReq([{
+        eventName: 'searchSystemsInSphere',
+        eventData: { systemName: ref, searchRadius: R, considerAlef: true }
+      }]);
+      const ev0 = sph.events?.[0];
+      if(ev0?.eventStatus !== 'OK') throw new Error(ev0?.eventStatusText||'API error');
+      const systems = ev0.eventData.systems||[];
+      if(!systems.length) { status.textContent='⚠️ No systems in radius'; return; }
 
-// enable/disable Search button
-function enableSearch(){
-  $('#go').classList.remove('disabled');
-  $('#go').disabled = false;
-}
-function disableSearch(){
-  $('#go').classList.add('disabled');
-  $('#go').disabled = true;
-}
+      // 2) filter for uncolonized & water/ELW
+      const hits = [];
+      let count=0;
+      for(const sys of systems) {
+        count++;
+        status.textContent = `Scanning ${count}/${systems.length}…`;
 
-function callInara(events){
-  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-  const payload = {
-    header: {
-      appName:'Debug',
-      appVersion:'1.0',
-      isDeveloped:true,
-      apiKey: c.key,            // must be here
-      commanderName: c.cmdr     // must be here
-    },
-    events
-  };
-  console.log('→ REQUEST PAYLOAD:', payload);
-  return axios.post(WORKER_URL, payload).then(r=>{
-    console.log('← RAW RESPONSE:', r.data);
-    return r.data;
-  });
-}
+        if(sys.stationsCount||sys.factionsCount) continue;
 
-$('#go').onclick = async ()=>{
-  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-  if(!c.key||!c.cmdr){
-    $('#warn').textContent = '🚨 Please set your CMDR name and API key first!';
-    return;
-  }
-  $('#warn').textContent = '';
-  $('#status').textContent = '⏳ querying…';
-  $('#debug').textContent = '';
-  try {
-    const result = await callInara([{
-      eventName:'searchSystemsInSphere',
-      eventData:{ systemName:$('#system').value, searchRadius:+$('#radius').value }
-    }]);
-    $('#debug').textContent = JSON.stringify(result, null, 2);
+        const bres = await inaraReq([{
+          eventName: 'getStarSystemBodies',
+          eventData: { systemName: sys.name }
+        }]);
+        const bev = bres.events?.[0];
+        if(bev?.eventStatus!=='OK') continue;
 
-    if(result.events && result.events[0]){
-      $('#status').textContent = 
-        `eventStatus: ${result.events[0].eventStatus} – ${result.events[0].eventStatusText}`;
-    } else {
-      $('#status').textContent = '❌ No events array returned';
+        const bodies = bev.eventData.bodies||[];
+        const ww = bodies.filter(b=>
+          b.type==='Water world' ||
+          (b.subType && b.subType.includes('Earth-like'))
+        );
+        if(!ww.length) continue;
+
+        const ls = ww[0].distanceToArrival||0;
+        if(ls>maxLs) continue;
+
+        hits.push({
+          name: sys.name,
+          dist: sys.distance.toFixed(1),
+          ls:   Math.round(ls),
+          worlds: ww.map(w=>w.name.replace(sys.name+' ','')).join(', ')
+        });
+      }
+
+      if(!hits.length){
+        status.textContent = '✅ API OK – but no matching systems.';
+        return;
+      }
+
+      // 3) render
+      hits.sort((a,b)=>a.dist - b.dist);
+      for(const h of hits){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td><a href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}" target="_blank">${h.name}</a></td>
+          <td class="text-center">${h.dist}</td>
+          <td class="text-center">${h.ls}</td>
+          <td>${h.worlds}</td>`;
+        tbody.appendChild(tr);
+      }
+      table.classList.remove('hidden');
+      status.textContent = `✅ API OK – found ${hits.length} systems.`;
+
+    } catch(err) {
+      console.error(err);
+      status.textContent = `❌ ${err.message}`;
     }
-  } catch(err){
-    console.error(err);
-    $('#status').textContent = '❌ ' + err.message;
-  }
-};
+  };
+})();
 </script>
+
 </body>
 </html>
