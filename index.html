@@ -6,13 +6,14 @@
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body {font-family:sans-serif;padding:1rem;background:#111;color:#eee;}
-    input, button {margin-right:.5rem;}
-    table {width:100%;border-collapse:collapse;margin-top:1rem;}
-    th, td {padding:.5rem;border:1px solid #444;}
-    th {background:#222;}
-    tr:hover {background:#222;}
-    a {color:#0af; text-decoration:underline;}
+    body { font-family:sans-serif; padding:1rem; background:#111; color:#eee; }
+    input, button { margin-right:.5rem; }
+    table { width:100%; border-collapse:collapse; margin-top:1rem; }
+    th, td { padding:.5rem; border:1px solid #444; }
+    th { background:#222; }
+    tr:hover { background:#222; }
+    a { color:#0af; text-decoration:underline; }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
@@ -31,6 +32,7 @@
 
   <div id="status" class="mt-2 text-sm"></div>
 
+  <!-- Results table -->
   <div id="results-wrap" class="overflow-x-auto">
     <table id="results" class="hidden text-sm">
       <thead>
@@ -41,69 +43,73 @@
   </div>
 
 <script>
-(async()=>{
-  // ─── CONFIG ────────────────────────────────────────────────────────────────
+(async()=> {
+  // ── CONFIGURATION ─────────────────────
   const WORKER_URL     = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
   const COMMANDER_NAME = 'zero2hero';              // ← your CMDR here
   const API_KEY        = '6twkf7ayfokk0wccoc448wog8sgsw4o0kgkkow4'; // ← your key here
 
-  const $ = q=>document.querySelector(q);
-  const status = $('#status');
-  const table  = $('#results');
-  const tbody  = table.querySelector('tbody');
+  const $       = s => document.querySelector(s);
+  const status  = $('#status');
+  const table   = $('#results');
+  const tbody   = table.querySelector('tbody');
 
+  // ── Inara proxy call ─────────────────
   async function inaraReq(events) {
     const payload = {
-      header: {
-        appName: 'SysFinder',
-        appVersion: '1.0',
-        isDeveloped: true,
-        apiKey:        API_KEY,
-        commanderName: COMMANDER_NAME
-      },
-      events
+      header: { appName:'SysFinder', appVersion:'1.0', isDeveloped:true },
+      events,
+      key:            API_KEY,         // ← top‑level
+      commanderName:  COMMANDER_NAME   // ← top‑level
     };
+    console.log('→ PAYLOAD', payload);
     const res = await axios.post(WORKER_URL, payload);
+    console.log('← RESPONSE', res.data);
     return res.data;
   }
 
-  $('#go').onclick = async ()=>{
+  // ── Main search handler ──────────────
+  $('#go').onclick = async () => {
     const ref   = $('#system').value.trim();
     const R     = +$('#radius').value||30;
     const maxLs = +$('#maxLs').value||2000;
-    if(!ref) { status.textContent='⚠️ Please enter a reference system'; return; }
+    if(!ref) { status.textContent = '⚠️ Enter a system first'; return; }
 
     status.textContent = '⏳ querying…';
-    tbody.innerHTML = ''; table.classList.add('hidden');
+    tbody.innerHTML   = '';
+    table.classList.add('hidden');
 
     try {
-      // 1) find all systems in sphere
-      const sph = await inaraReq([{
-        eventName: 'searchSystemsInSphere',
-        eventData: { systemName: ref, searchRadius: R, considerAlef: true }
+      // 1) searchSystemsInSphere
+      const sphere = await inaraReq([{
+        eventName:'searchSystemsInSphere',
+        eventData:{ systemName:ref, searchRadius:R, considerAlef:true }
       }]);
-      const ev0 = sph.events?.[0];
-      if(ev0?.eventStatus !== 'OK') throw new Error(ev0?.eventStatusText||'API error');
-      const systems = ev0.eventData.systems||[];
-      if(!systems.length) { status.textContent='⚠️ No systems in radius'; return; }
+      const ev0 = sphere.events?.[0];
+      if(!ev0 || ev0.eventStatus !== 'OK') {
+        throw new Error(ev0?.eventStatusText || 'API error');
+      }
+      const systems = ev0.eventData.systems || [];
+      if(!systems.length) {
+        status.textContent = '⚠️ No systems in radius';
+        return;
+      }
 
-      // 2) filter for uncolonized & water/ELW
+      // 2) filter & detail bodies
       const hits = [];
-      let count=0;
-      for(const sys of systems) {
-        count++;
-        status.textContent = `Scanning ${count}/${systems.length}…`;
+      for(let i=0;i<systems.length;i++) {
+        const sys = systems[i];
+        status.textContent = `Scanning ${i+1}/${systems.length}…`;
+        if(sys.stationsCount || sys.factionsCount) continue;
 
-        if(sys.stationsCount||sys.factionsCount) continue;
-
-        const bres = await inaraReq([{
-          eventName: 'getStarSystemBodies',
-          eventData: { systemName: sys.name }
+        const bodiesRes = await inaraReq([{
+          eventName:'getStarSystemBodies',
+          eventData:{ systemName:sys.name }
         }]);
-        const bev = bres.events?.[0];
-        if(bev?.eventStatus!=='OK') continue;
+        const bev = bodiesRes.events?.[0];
+        if(!bev || bev.eventStatus!=='OK') continue;
 
-        const bodies = bev.eventData.bodies||[];
+        const bodies = bev.eventData.bodies || [];
         const ww = bodies.filter(b=>
           b.type==='Water world' ||
           (b.subType && b.subType.includes('Earth-like'))
@@ -114,20 +120,20 @@
         if(ls>maxLs) continue;
 
         hits.push({
-          name: sys.name,
-          dist: sys.distance.toFixed(1),
-          ls:   Math.round(ls),
+          name:   sys.name,
+          dist:   sys.distance.toFixed(1),
+          ls:     Math.round(ls),
           worlds: ww.map(w=>w.name.replace(sys.name+' ','')).join(', ')
         });
       }
 
-      if(!hits.length){
+      if(!hits.length) {
         status.textContent = '✅ API OK – but no matching systems.';
         return;
       }
 
-      // 3) render
-      hits.sort((a,b)=>a.dist - b.dist);
+      // 3) render table
+      hits.sort((a,b)=>a.dist-b.dist);
       for(const h of hits){
         const tr = document.createElement('tr');
         tr.innerHTML = `
@@ -147,6 +153,5 @@
   };
 })();
 </script>
-
 </body>
 </html>
