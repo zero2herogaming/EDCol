@@ -8,8 +8,14 @@
   <style>
     body { font-family:sans-serif; padding:1rem; background:#111; color:#eee; }
     input, button { margin-right:.5rem; }
-    pre { background:#222; padding:1rem; overflow:auto; color:#0f0; }
+    pre { background:#222; padding:1rem; max-height:300px; overflow:auto; color:#0f0; }
     label { display:inline-block; margin-bottom:.5rem; }
+    .btn { padding:.25rem .5rem; border-radius:.25rem; cursor:pointer; }
+    .btn-save { background:#0a0; color:#000; }
+    .btn-clear { background:#444; }
+    .btn-search { background:#0af; }
+    .disabled { background:#555; cursor:not-allowed; }
+    .warn { color:#f55; }
   </style>
 </head>
 <body>
@@ -24,8 +30,8 @@
     <label>API Key:
       <input id="key" style="width:300px" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"/>
     </label>
-    <button id="save">Save</button>
-    <button id="clear">Clear</button>
+    <button id="save" class="btn btn-save">Save Creds</button>
+    <button id="clear" class="btn btn-clear">Clear Creds</button>
   </div>
   <p id="creds" style="color:#888"></p>
 
@@ -37,9 +43,9 @@
     <label>Radius:
       <input id="radius" type="number" value="30" style="width:60px"/>
     </label>
-    <button id="go">Search</button>
+    <button id="go" class="btn btn-search disabled" disabled>Search</button>
   </div>
-
+  <p id="warn" class="warn"></p>
   <p id="status"></p>
   <pre id="debug"></pre>
 
@@ -47,17 +53,22 @@
 const WORKER_URL = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
 const STORAGE_KEY = 'inaraCreds';
 
+function $(s){return document.querySelector(s);}
 function showCreds(){
   const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
-  $('p#creds').textContent = c.cmdr
-    ? `Using CMDR="${c.cmdr}"  API Key="${c.key}"`
-    : 'No credentials saved.';
+  if(c.cmdr && c.key){
+    $('p#creds').textContent = `Using CMDR="${c.cmdr}"   Key="${c.key}"`;
+    enableSearch();
+  } else {
+    $('p#creds').textContent = 'No credentials saved.';
+    disableSearch();
+  }
 }
 
 $('#save').onclick = ()=>{
   localStorage.setItem(STORAGE_KEY, JSON.stringify({
     cmdr: $('#cmdr').value.trim(),
-    key:  $('#key').value.trim()
+    key: $('#key').value.trim()
   }));
   showCreds();
 };
@@ -74,52 +85,62 @@ if(localStorage.getItem(STORAGE_KEY)){
 }
 showCreds();
 
-async function callInara(events){
-  const creds = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+// enable/disable Search button
+function enableSearch(){
+  $('#go').classList.remove('disabled');
+  $('#go').disabled = false;
+}
+function disableSearch(){
+  $('#go').classList.add('disabled');
+  $('#go').disabled = true;
+}
+
+function callInara(events){
+  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
   const payload = {
     header: {
-      appName: 'Debug',
-      appVersion: '1.0',
-      isDeveloped: true,
-      apiKey: creds.key,            // ← must be here
-      commanderName: creds.cmdr     // ← must be here
+      appName:'Debug',
+      appVersion:'1.0',
+      isDeveloped:true,
+      apiKey: c.key,            // must be here
+      commanderName: c.cmdr     // must be here
     },
     events
   };
   console.log('→ REQUEST PAYLOAD:', payload);
-  const res = await axios.post(WORKER_URL, payload);
-  console.log('← RAW RESPONSE:', res.data);
-  return res.data;
+  return axios.post(WORKER_URL, payload).then(r=>{
+    console.log('← RAW RESPONSE:', r.data);
+    return r.data;
+  });
 }
 
 $('#go').onclick = async ()=>{
+  const c = JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}');
+  if(!c.key||!c.cmdr){
+    $('#warn').textContent = '🚨 Please set your CMDR name and API key first!';
+    return;
+  }
+  $('#warn').textContent = '';
   $('#status').textContent = '⏳ querying…';
-  $('#debug').textContent  = '';
+  $('#debug').textContent = '';
   try {
-    // 1) searchSystemsInSphere
     const result = await callInara([{
-      eventName: 'searchSystemsInSphere',
-      eventData: {
-        systemName: $('#system').value,
-        searchRadius: +$('#radius').value
-      }
+      eventName:'searchSystemsInSphere',
+      eventData:{ systemName:$('#system').value, searchRadius:+$('#radius').value }
     }]);
-
     $('#debug').textContent = JSON.stringify(result, null, 2);
 
-    if(!result.events || !result.events[0]){
-      throw new Error('Still no events array returned');
+    if(result.events && result.events[0]){
+      $('#status').textContent = 
+        `eventStatus: ${result.events[0].eventStatus} – ${result.events[0].eventStatusText}`;
+    } else {
+      $('#status').textContent = '❌ No events array returned';
     }
-
-    const evt = result.events[0];
-    $('#status').textContent = `eventStatus: ${evt.eventStatus} – ${evt.eventStatusText || ''}`;
   } catch(err){
     console.error(err);
     $('#status').textContent = '❌ ' + err.message;
   }
 };
-
-function $(s){ return document.querySelector(s); }
 </script>
 </body>
 </html>
