@@ -1,139 +1,98 @@
 <!doctype html>
 <html lang="en" class="dark">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Elite System Finder – Debug</title>
-
-  <!-- Libraries -->
+  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Elite Finder — Debug (Header Key)</title>
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Theme + Input Styling -->
   <style>
-    /* Dark-mode base */
-    html.light .dark\:bg-zinc-900 { background: #fafafa; }
-    .transition { transition: all .2s; }
-
-    /* Force inputs readable */
-    input, dialog input, textarea, select {
-      background-color: #fff !important;
-      color: #000 !important;
-      border: 1px solid #666 !important;
-    }
-    button {
-      color: #000 !important;
-    }
+    body { font-family: sans-serif; padding: 1rem; }
+    input, button { margin-right: .5rem; }
+    pre { background: #f0f0f0; padding: 1rem; max-height: 300px; overflow:auto; }
   </style>
 </head>
+<body>
 
-<body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-black min-h-screen p-4">
+  <h1>Elite Finder – Debug (Header Key)</h1>
 
-  <h1 class="text-2xl font-bold text-teal-500 mb-4">Elite System Finder – Debug</h1>
-
-  <!-- Credentials -->
-  <div class="mb-4 space-x-2">
-    <label>CMDR Name:
-      <input id="cmdr" class="p-1" />
-    </label>
-    <label>API Key:
-      <input id="key" class="p-1 w-80" />
-    </label>
-    <button id="save" class="bg-teal-300 px-3 py-1 rounded">Save</button>
-    <button id="clear" class="bg-zinc-300 px-2 py-1 rounded">Clear</button>
+  <div>
+    <label>CMDR: <input id="cmdr" placeholder="zero2hero"/></label>
+    <label>Key:  <input id="key" style="width:300px" placeholder="abcd1234…"/></label>
+    <button id="save">Save</button>
+    <button id="clear">Clear</button>
   </div>
-  <div id="credsDisplay" class="mb-4 text-sm text-zinc-600"></div>
+  <p id="creds" style="color:#666"></p>
 
-  <!-- Search form -->
-  <div class="mb-4 space-x-2">
-    <input id="system" placeholder="System (e.g. Sol)" class="p-1 border rounded" />
-    <input id="radius" type="number" value="30" class="p-1 border rounded w-16" />
-    <button id="go" class="bg-teal-300 px-3 py-1 rounded">Search</button>
+  <div>
+    <input id="system" placeholder="System (Sol)" />
+    <input id="radius" type="number" value="30" style="width:60px"/>
+    <button id="go">Search</button>
   </div>
 
-  <div id="status" class="mb-4 text-sm"></div>
-  <pre id="debug" class="p-2 bg-zinc-200 dark:bg-zinc-800 overflow-auto"></pre>
+  <p id="status"></p>
+  <pre id="debug"></pre>
 
 <script>
-const proxy = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
-const STORAGE = 'inaraCreds';
+const WORKER = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
+const LSKEY  = 'inaraCreds';
 
-function showCreds() {
-  const c = JSON.parse(localStorage.getItem(STORAGE) || '{}');
-  $('#credsDisplay').textContent = c.cmdr
-    ? `CMDR: ${c.cmdr} | Key: ${c.key}`
-    : 'No credentials saved.';
+function $(s){return document.querySelector(s);}
+function showCreds(){
+  const c=JSON.parse(localStorage.getItem(LSKEY)||'{}');
+  $('p#creds').textContent = c.cmdr ? `Using CMDR=${c.cmdr} Key=${c.key}` : 'No creds saved';
 }
-
-$('#save').onclick = () => {
-  localStorage.setItem(STORAGE, JSON.stringify({
-    cmdr: $('#cmdr').value.trim(),
-    key:  $('#key').value.trim()
-  }));
+$('#save').onclick = ()=>{
+  localStorage.setItem(LSKEY,JSON.stringify({cmdr:$('#cmdr').value, key:$('#key').value}));
   showCreds();
 };
-
-$('#clear').onclick = () => {
-  localStorage.removeItem(STORAGE);
+$('#clear').onclick = ()=>{
+  localStorage.removeItem(LSKEY);
   showCreds();
 };
-
-if (localStorage.getItem(STORAGE)) {
-  const c = JSON.parse(localStorage.getItem(STORAGE));
-  $('#cmdr').value = c.cmdr;
-  $('#key').value  = c.key;
+if(localStorage.getItem(LSKEY)){
+  const c=JSON.parse(localStorage.getItem(LSKEY));
+  $('#cmdr').value=c.cmdr; $('#key').value=c.key;
 }
-
 showCreds();
 
-function $(sel) { return document.querySelector(sel); }
-
-async function callInara(events) {
-  const c = JSON.parse(localStorage.getItem(STORAGE) || '{}');
-  const body = {
-    header: { appName:'Debug', appVersion:'1.0', isDeveloped:true },
-    events,
-    key: c.key,
-    commanderName: c.cmdr
+async function callInara(events){
+  const c=JSON.parse(localStorage.getItem(LSKEY)||'{}');
+  const req = {
+    header: {
+      appName: 'Debug',
+      appVersion: '1.0',
+      isDeveloped: true,
+      apiKey: c.key,             // ← must be here
+      commanderName: c.cmdr      // ← and here
+    },
+    events
   };
-  console.log('REQUEST BODY →', body);
-  const res = await axios.post(proxy, body);
+  console.log('REQUEST BODY →', req);
+  const res = await axios.post(WORKER, req);
   console.log('RAW RESPONSE ←', res.data);
   return res.data;
 }
 
-$('#go').onclick = async () => {
-  $('#status').textContent = '⏳ querying…';
-  $('#debug').textContent = '';
-  try {
-    // 1) sphere search
-    const sp = await callInara([{
-      eventName: 'searchSystemsInSphere',
-      eventData: {
-        systemName: $('#system').value,
-        searchRadius: +$('#radius').value
-      }
+$('#go').onclick = async ()=>{
+  $('#status').textContent='Querying…';
+  $('#debug').textContent='';
+  try{
+    const r = await callInara([{
+      eventName:'searchSystemsInSphere',
+      eventData:{systemName:$('#system').value, searchRadius:+$('#radius').value}
     }]);
-
-    if (!sp.events || !sp.events[0]) throw Error('Missing sp.events[0]');
-    const evt = sp.events[0];
-
-    $('#debug').textContent += JSON.stringify(evt, null, 2) + '\n\n';
-
-    if (evt.eventStatus !== 'OK') {
-      throw Error('Status ≠ OK: ' + evt.eventStatus);
+    // Dump the first event
+    if(r.events && r.events[0]){
+      $('#debug').textContent = JSON.stringify(r.events[0],null,2);
+      $('#status').textContent = 'Got eventStatus='+r.events[0].eventStatus;
+    } else {
+      throw new Error('No events in response');
     }
-
-    const syss = evt.eventData.systems;
-    if (!Array.isArray(syss)) throw Error('systems not array');
-
-    $('#status').textContent = `🔍 Found ${syss.length} systems in radius.`;
-  } catch (err) {
+  }catch(err){
     console.error(err);
-    $('#status').textContent = '❌ ' + err.message;
+    $('#status').textContent='Error: '+err.message;
   }
 };
 </script>
-
 </body>
 </html>
