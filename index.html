@@ -109,7 +109,7 @@ async function inaraReq(events) {
   const body  = {
     header: { appName: 'SysFinder', appVersion: '1.0', isDeveloped: true },
     events,
-    key: creds.key,
+    apiKey: creds.key,            // <-- corrected field name
     commanderName: creds.cmdr
   };
   return axios.post(proxyUrl, body);
