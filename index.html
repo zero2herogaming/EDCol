@@ -1,32 +1,30 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
-  <meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Elite System Finder</title>
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { font-family:sans-serif; padding:1rem; background:#111; color:#eee; }
-    input, button { margin-right:.5rem; }
-    table { width:100%; border-collapse:collapse; margin-top:1rem; }
-    th, td { padding:.5rem; border:1px solid #444; }
-    th { background:#222; }
-    tr:hover { background:#222; }
-    a { color:#0af; text-decoration:underline; }
-    .hidden { display:none; }
+    body { font-family: sans-serif; padding: 1rem; background: #111; color: #eee; }
+    input, button { margin-right: .5rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { padding: .5rem; border: 1px solid #444; }
+    th { background: #222; }
+    tr:hover { background: #222; }
+    a { color: #0af; text-decoration: underline; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-
   <h1 class="text-2xl font-bold text-teal-400">Elite System Finder</h1>
 
   <!-- Search form -->
   <div class="mt-4">
     <input id="system" placeholder="Reference system (e.g. Sol)" class="p-2 rounded bg-[#222] border border-[#444] w-64" />
-    <input id="radius" type="number" value="30" min="5" max="150"
-           class="p-2 rounded bg-[#222] border border-[#444] w-20" />
-    <input id="maxLs" type="number" value="2000" min="10"
-           class="p-2 rounded bg-[#222] border border-[#444] w-24" />
+    <input id="radius" type="number" value="30" min="5" max="150" class="p-2 rounded bg-[#222] border border-[#444] w-20" />
+    <input id="maxLs" type="number" value="2000" min="10" class="p-2 rounded bg-[#222] border border-[#444] w-24" />
     <button id="go" class="px-4 py-2 bg-teal-500 hover:bg-teal-600 rounded">Search</button>
   </div>
 
@@ -36,122 +34,123 @@
   <div id="results-wrap" class="overflow-x-auto">
     <table id="results" class="hidden text-sm">
       <thead>
-        <tr><th>System</th><th>Dist (ly)</th><th>Arr Ls</th><th>Water / ELWs</th></tr>
+        <tr><th>System</th><th>Dist (ly)</th><th>Arr Ls</th><th>Water / ELWs</th></tr>
       </thead>
       <tbody></tbody>
     </table>
   </div>
 
-<script>
-(async()=> {
-  // ── CONFIGURATION ─────────────────────
-  const WORKER_URL     = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
-  const COMMANDER_NAME = 'zero2hero';              // ← your CMDR here
-  const API_KEY        = '6twkf7ayfokk0wccoc448wog8sgsw4o0kgkkow4'; // ← your key here
+  <script>
+    (async () => {
+      // Configuration
+      const WORKER_URL = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/'; // Update with your Cloudflare Worker URL
+      const $ = s => document.querySelector(s);
+      const status = $('#status');
+      const table = $('#results');
+      const tbody = table.querySelector('tbody');
 
-  const $       = s => document.querySelector(s);
-  const status  = $('#status');
-  const table   = $('#results');
-  const tbody   = table.querySelector('tbody');
-
-  // ── Inara proxy call ─────────────────
-  async function inaraReq(events) {
-    const payload = {
-      header: { appName:'SysFinder', appVersion:'1.0', isDeveloped:true },
-      events,
-      key:            API_KEY,         // ← top‑level
-      commanderName:  COMMANDER_NAME   // ← top‑level
-    };
-    console.log('→ PAYLOAD', payload);
-    const res = await axios.post(WORKER_URL, payload);
-    console.log('← RESPONSE', res.data);
-    return res.data;
-  }
-
-  // ── Main search handler ──────────────
-  $('#go').onclick = async () => {
-    const ref   = $('#system').value.trim();
-    const R     = +$('#radius').value||30;
-    const maxLs = +$('#maxLs').value||2000;
-    if(!ref) { status.textContent = '⚠️ Enter a system first'; return; }
-
-    status.textContent = '⏳ querying…';
-    tbody.innerHTML   = '';
-    table.classList.add('hidden');
-
-    try {
-      // 1) searchSystemsInSphere
-      const sphere = await inaraReq([{
-        eventName:'searchSystemsInSphere',
-        eventData:{ systemName:ref, searchRadius:R, considerAlef:true }
-      }]);
-      const ev0 = sphere.events?.[0];
-      if(!ev0 || ev0.eventStatus !== 'OK') {
-        throw new Error(ev0?.eventStatusText || 'API error');
-      }
-      const systems = ev0.eventData.systems || [];
-      if(!systems.length) {
-        status.textContent = '⚠️ No systems in radius';
-        return;
+      // Inara API request via worker
+      async function inaraReq(events) {
+        try {
+          const payload = { header: { appName: 'SysFinder', appVersion: '1.0', isDeveloped: true }, events };
+          const res = await axios.post(WORKER_URL, payload, { headers: { 'Content-Type': 'application/json' } });
+          if (res.status !== 200) throw new Error('Worker request failed');
+          return res.data;
+        } catch (err) {
+          throw new Error(`API request failed: ${err.message}`);
+        }
       }
 
-      // 2) filter & detail bodies
-      const hits = [];
-      for(let i=0;i<systems.length;i++) {
-        const sys = systems[i];
-        status.textContent = `Scanning ${i+1}/${systems.length}…`;
-        if(sys.stationsCount || sys.factionsCount) continue;
+      // Main search handler
+      $('#go').onclick = async () => {
+        const ref = $('#system').value.trim();
+        const radius = Number($('#radius').value) || 30;
+        const maxLs = Number($('#maxLs').value) || 2000;
+        if (!ref) {
+          status.textContent = '⚠️ Enter a system name';
+          return;
+        }
 
-        const bodiesRes = await inaraReq([{
-          eventName:'getStarSystemBodies',
-          eventData:{ systemName:sys.name }
-        }]);
-        const bev = bodiesRes.events?.[0];
-        if(!bev || bev.eventStatus!=='OK') continue;
+        status.textContent = '⏳ Querying…';
+        tbody.innerHTML = '';
+        table.classList.add('hidden');
 
-        const bodies = bev.eventData.bodies || [];
-        const ww = bodies.filter(b=>
-          b.type==='Water world' ||
-          (b.subType && b.subType.includes('Earth-like'))
-        );
-        if(!ww.length) continue;
+        try {
+          // Step 1: Search systems in sphere
+          const sphereRes = await inaraReq([{
+            eventName: 'searchSystemsInSphere',
+            eventData: { systemName: ref, searchRadius: radius, considerAlef: true }
+          }]);
 
-        const ls = ww[0].distanceToArrival||0;
-        if(ls>maxLs) continue;
+          const ev0 = sphereRes.events?.[0];
+          if (!ev0 || ev0.eventStatus !== 200) {
+            throw new Error(ev0?.eventStatusText || 'Failed to fetch systems');
+          }
 
-        hits.push({
-          name:   sys.name,
-          dist:   sys.distance.toFixed(1),
-          ls:     Math.round(ls),
-          worlds: ww.map(w=>w.name.replace(sys.name+' ','')).join(', ')
-        });
-      }
+          const systems = ev0.eventData.systems || [];
+          if (!systems.length) {
+            status.textContent = '⚠️ No systems found in radius';
+            return;
+          }
 
-      if(!hits.length) {
-        status.textContent = '✅ API OK – but no matching systems.';
-        return;
-      }
+          // Step 2: Filter unpopulated systems with water worlds or ELWs
+          const hits = [];
+          for (let i = 0; i < systems.length; i++) {
+            const sys = systems[i];
+            status.textContent = `Scanning ${i + 1}/${systems.length}…`;
+            if (sys.stationsCount || sys.factionsCount) continue; // Skip populated systems
 
-      // 3) render table
-      hits.sort((a,b)=>a.dist-b.dist);
-      for(const h of hits){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td><a href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}" target="_blank">${h.name}</a></td>
-          <td class="text-center">${h.dist}</td>
-          <td class="text-center">${h.ls}</td>
-          <td>${h.worlds}</td>`;
-        tbody.appendChild(tr);
-      }
-      table.classList.remove('hidden');
-      status.textContent = `✅ API OK – found ${hits.length} systems.`;
+            const bodiesRes = await inaraReq([{
+              eventName: 'getStarSystemBodies',
+              eventData: { systemName: sys.name }
+            }]);
 
-    } catch(err) {
-      console.error(err);
-      status.textContent = `❌ ${err.message}`;
-    }
-  };
-})();
-</script>
+            const bev = bodiesRes.events?.[0];
+            if (!bev || bev.eventStatus !== 200) continue;
+
+            const bodies = bev.eventData.bodies || [];
+            const ww = bodies.filter(b =>
+              b.bodyType === 'Planet' && (
+                b.subType === 'Water world' ||
+                b.subType === 'Earth-like world'
+              )
+            );
+            if (!ww.length) continue;
+
+            const ls = ww[0].distanceToArrival || 0;
+            if (ls > maxLs) continue;
+
+            hits.push({
+              name: sys.name,
+              dist: sys.distance.toFixed(1),
+              ls: Math.round(ls),
+              worlds: ww.map(w => w.name.replace(sys.name + ' ', '')).join(', ')
+            });
+          }
+
+          if (!hits.length) {
+            status.textContent = '✅ API OK – No matching systems found';
+            return;
+          }
+
+          // Step 3: Render table
+          hits.sort((a, b) => a.dist - b.dist);
+          tbody.innerHTML = hits.map(h => `
+            <tr>
+              <td><a href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}" target="_blank">${h.name}</a></td>
+              <td class="text-center">${h.dist}</td>
+              <td class="text-center">${h.ls}</td>
+              <td>${h.worlds}</td>
+            </tr>
+          `).join('');
+          table.classList.remove('hidden');
+          status.textContent = `✅ Found ${hits.length} systems`;
+        } catch (err) {
+          console.error(err);
+          status.textContent = `❌ Error: ${err.message}`;
+        }
+      };
+    })();
+  </script>
 </body>
 </html>
