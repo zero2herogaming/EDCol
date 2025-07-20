@@ -1,47 +1,70 @@
 <!doctype html>
 <html lang="en" class="dark">
 <head>
-  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Elite System Finder – Debug</title>
+
+  <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Theme + Input Styling -->
   <style>
-    html.light .dark\:bg-zinc-900 { background:#fafafa }
-    .transition { transition:all .2s }
+    /* Dark-mode base */
+    html.light .dark\:bg-zinc-900 { background: #fafafa; }
+    .transition { transition: all .2s; }
+
+    /* Force inputs readable */
+    input, dialog input, textarea, select {
+      background-color: #fff !important;
+      color: #000 !important;
+      border: 1px solid #666 !important;
+    }
+    button {
+      color: #000 !important;
+    }
   </style>
 </head>
+
 <body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-black min-h-screen p-4">
 
-  <h1 class="text-2xl font-bold text-teal-500">Elite System Finder – Debug</h1>
+  <h1 class="text-2xl font-bold text-teal-500 mb-4">Elite System Finder – Debug</h1>
 
   <!-- Credentials -->
-  <div>
-    <label>CMDR Name: <input id="cmdr" class="border p-1" /></label>
-    <label>API Key:   <input id="key"   class="border p-1" style="width:300px" /></label>
-    <button id="save" class="bg-teal-500 px-3 py-1 rounded">Save</button>
-    <button id="clear" class="bg-zinc-700 px-2 py-1 rounded">Clear</button>
+  <div class="mb-4 space-x-2">
+    <label>CMDR Name:
+      <input id="cmdr" class="p-1" />
+    </label>
+    <label>API Key:
+      <input id="key" class="p-1 w-80" />
+    </label>
+    <button id="save" class="bg-teal-300 px-3 py-1 rounded">Save</button>
+    <button id="clear" class="bg-zinc-300 px-2 py-1 rounded">Clear</button>
   </div>
-  <div id="credsDisplay" class="mt-2 text-sm text-zinc-600"></div>
+  <div id="credsDisplay" class="mb-4 text-sm text-zinc-600"></div>
 
   <!-- Search form -->
-  <div class="mt-4">
-    <input id="system" placeholder="System (e.g. Sol)" class="border p-1" />
-    <input id="radius" type="number" value="30" class="border p-1 w-16" />
-    <button id="go" class="bg-teal-500 px-3 py-1 rounded">Search</button>
+  <div class="mb-4 space-x-2">
+    <input id="system" placeholder="System (e.g. Sol)" class="p-1 border rounded" />
+    <input id="radius" type="number" value="30" class="p-1 border rounded w-16" />
+    <button id="go" class="bg-teal-300 px-3 py-1 rounded">Search</button>
   </div>
 
-  <div id="status" class="mt-2 text-sm"></div>
-  <pre id="debug" class="mt-4 p-2 bg-zinc-200 dark:bg-zinc-800 overflow-auto"></pre>
+  <div id="status" class="mb-4 text-sm"></div>
+  <pre id="debug" class="p-2 bg-zinc-200 dark:bg-zinc-800 overflow-auto"></pre>
 
 <script>
 const proxy = 'https://snowy-thunder-7b95.zero2herotwitch.workers.dev/';
 const STORAGE = 'inaraCreds';
 
 function showCreds() {
-  const c = JSON.parse(localStorage.getItem(STORAGE)||'{}');
-  $('#credsDisplay').textContent = c.cmdr ? 
-    `CMDR: ${c.cmdr} | Key: ${c.key}` : 'No credentials saved.';
+  const c = JSON.parse(localStorage.getItem(STORAGE) || '{}');
+  $('#credsDisplay').textContent = c.cmdr
+    ? `CMDR: ${c.cmdr} | Key: ${c.key}`
+    : 'No credentials saved.';
 }
+
 $('#save').onclick = () => {
   localStorage.setItem(STORAGE, JSON.stringify({
     cmdr: $('#cmdr').value.trim(),
@@ -49,19 +72,30 @@ $('#save').onclick = () => {
   }));
   showCreds();
 };
-$('#clear').onclick = () => { localStorage.removeItem(STORAGE); showCreds(); };
+
+$('#clear').onclick = () => {
+  localStorage.removeItem(STORAGE);
+  showCreds();
+};
+
 if (localStorage.getItem(STORAGE)) {
   const c = JSON.parse(localStorage.getItem(STORAGE));
-  $('#cmdr').value = c.cmdr; $('#key').value = c.key;
+  $('#cmdr').value = c.cmdr;
+  $('#key').value  = c.key;
 }
+
 showCreds();
 
-function $(s){return document.querySelector(s)}
+function $(sel) { return document.querySelector(sel); }
 
 async function callInara(events) {
-  const c = JSON.parse(localStorage.getItem(STORAGE)||'{}');
-  const body = { header:{appName:'Debug',appVersion:'1.0',isDeveloped:true}, events,
-    key:c.key, commanderName:c.cmdr };
+  const c = JSON.parse(localStorage.getItem(STORAGE) || '{}');
+  const body = {
+    header: { appName:'Debug', appVersion:'1.0', isDeveloped:true },
+    events,
+    key: c.key,
+    commanderName: c.cmdr
+  };
   console.log('REQUEST BODY →', body);
   const res = await axios.post(proxy, body);
   console.log('RAW RESPONSE ←', res.data);
@@ -72,23 +106,34 @@ $('#go').onclick = async () => {
   $('#status').textContent = '⏳ querying…';
   $('#debug').textContent = '';
   try {
-    // 1) sphere
+    // 1) sphere search
     const sp = await callInara([{
-      eventName:'searchSystemsInSphere',
-      eventData:{systemName:$('#system').value,searchRadius:+$('#radius').value}
+      eventName: 'searchSystemsInSphere',
+      eventData: {
+        systemName: $('#system').value,
+        searchRadius: +$('#radius').value
+      }
     }]);
+
     if (!sp.events || !sp.events[0]) throw Error('Missing sp.events[0]');
     const evt = sp.events[0];
+
     $('#debug').textContent += JSON.stringify(evt, null, 2) + '\n\n';
-    if (evt.eventStatus!=='OK') throw Error('Status ≠ OK: '+evt.eventStatus);
+
+    if (evt.eventStatus !== 'OK') {
+      throw Error('Status ≠ OK: ' + evt.eventStatus);
+    }
+
     const syss = evt.eventData.systems;
     if (!Array.isArray(syss)) throw Error('systems not array');
+
     $('#status').textContent = `🔍 Found ${syss.length} systems in radius.`;
   } catch (err) {
     console.error(err);
-    $('#status').textContent = '❌ '+err.message;
+    $('#status').textContent = '❌ ' + err.message;
   }
 };
 </script>
+
 </body>
 </html>
