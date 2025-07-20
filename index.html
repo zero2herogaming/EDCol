@@ -56,11 +56,13 @@
       async function inaraReq(events) {
         try {
           const payload = { header: { appName: 'SysFinder', appVersion: '1.0', isDeveloped: true }, events };
+          console.log('Sending Payload:', JSON.stringify(payload, null, 2));
           const res = await axios.post(WORKER_URL, payload, { headers: { 'Content-Type': 'application/json' } });
-          console.log('Inara API Response:', JSON.stringify(res.data, null, 2)); // Pretty-print for debugging
-          if (res.status !== 200) throw new Error(`Worker request failed with status ${res.status}`);
+          console.log('Inara API Response:', JSON.stringify(res.data, null, 2));
+          if (res.status !== 200) throw new Error(`Worker request failed with HTTP status ${res.status}`);
           return res.data;
         } catch (err) {
+          console.error('Request Error:', err);
           throw new Error(`API request failed: ${err.message}`);
         }
       }
@@ -87,19 +89,20 @@
           }]);
 
           // Check response structure
+          console.log('Sphere Response:', JSON.stringify(sphereRes, null, 2));
           if (!sphereRes.header) {
             throw new Error('Invalid API response: Missing header');
           }
           const ev0 = sphereRes.events && sphereRes.events[0];
           if (!ev0) {
-            throw new Error('Invalid API response: No events returned');
+            throw new Error('Invalid API response: No events returned. Likely an invalid API key. Renew at https://inara.cz/api/');
           }
           if (ev0.eventStatus !== 200) {
             const errorMsg = ev0.eventStatusText || 'Unknown error';
-            if (errorMsg.toLowerCase().includes('api key')) {
-              throw new Error('Invalid or expired API key. Contact Inara to renew: https://inara.cz/api/');
-            } else if (errorMsg.toLowerCase().includes('rate limit')) {
-              throw new Error('Rate limit exceeded. Try a smaller radius or wait a few minutes.');
+            if (errorMsg.toLowerCase().includes('api key') || ev0.eventStatus === 401 || ev0.eventStatus === 403) {
+              throw new Error('Invalid or expired API key. Renew at https://inara.cz/api/');
+            } else if (errorMsg.toLowerCase().includes('rate limit') || ev0.eventStatus === 429) {
+              throw new Error('Rate limit exceeded. Try a smaller radius (e.g., 10) or wait a few minutes.');
             } else {
               throw new Error(`Failed to fetch systems: ${errorMsg}`);
             }
@@ -122,7 +125,7 @@
               eventName: 'getStarSystemBodies',
               eventData: { systemName: sys.name }
             }]);
-            await delay(1500); // 1.5s delay to avoid rate limits
+            await delay(2000); // 2s delay to avoid rate limits
 
             const bev = bodiesRes.events && bodiesRes.events[0];
             if (!bev || bev.eventStatus !== 200) {
