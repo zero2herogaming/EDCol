@@ -1,0 +1,119 @@
+<!--  
+  Elite System Finder (dark‑mode enhanced)  
+  * Adds a light/dark toggle (default = dark)  
+  * Extra user options:  
+      – Max arrival‑distance (Ls) filter so you only see "quick SC" builds (default = 2000 Ls).  
+  * Hints panel shows best‑practice tips for maximising passive income (highway hop, tariff %, etc.).  
+  * Code still runs 100 % client‑side via EDSM open API.  
+  Deploy unchanged on GitHub Pages – see previous instructions.  
+-->
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Elite System Finder – Colonisation Targets</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios@1/dist/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/ui@latest/dist/tailwind-ui.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>html.light .dark\:bg-zinc-900{background:#fafafa}.transition{transition:all .2s}</style>
+</head>
+<body class="dark:bg-zinc-900 dark:text-zinc-100 bg-white text-zinc-900 min-h-screen flex flex-col items-center p-4 gap-6">
+  <div class="w-full max-w-4xl flex justify-between items-center">
+    <h1 class="text-3xl font-bold text-teal-500">Elite System Finder</h1>
+    <!-- theme toggle -->
+    <button id="themeToggle" class="p-2 rounded bg-zinc-800 dark:bg-zinc-700 hover:bg-zinc-600 transition" title="Toggle light/dark">
+      🌙
+    </button>
+  </div>
+
+  <p class="text-sm max-w-prose text-center dark:text-zinc-400 text-zinc-600">
+    Finds <span class="text-teal-500">colonisable systems</span> (no factions/stations) that include at least one
+    <span class="text-blue-400">Water World</span> or <span class="text-amber-400">Earth‑Like World</span>
+    within your search radius.  All data live from <a class="underline" href="https://www.edsm.net/" target="_blank">EDSM</a>.
+  </p>
+
+  <!-- Tips -->
+  <details class="w-full max-w-4xl mb-4">
+    <summary class="cursor-pointer text-teal-400">Best‑practice to maximise passive income ▼</summary>
+    <ul class="list-disc pl-6 text-sm mt-2 dark:text-zinc-300 text-zinc-700 space-y-1">
+      <li>Plant the beacon on a busy highway hop (Bubble ⇆ Colonia, Guardian site chain, active CG star).</li>
+      <li>Keep arrival < 2 000 Ls from jump‑in star – commanders hate long SC.</li>
+      <li>High‑sec Corporate/co‑op security → more casual dockings.</li>
+      <li>Set <strong>10 % tariff</strong> on Market + UC + Vista; keep other services off (no upkeep).</li>
+      <li>Refill basic demand (Polymers, Water) every few weeks so traders always have cargo to move.</li>
+    </ul>
+  </details>
+
+  <!-- Input form -->
+  <form id="queryForm" class="flex flex-col md:flex-row gap-3 items-center w-full max-w-xl">
+    <input id="refSystem" required placeholder="Reference system (e.g. Sol)"
+           class="flex-1 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600 focus:outline-none" />
+    <input id="radius" type="number" value="30" min="5" max="150" step="1"
+           class="w-20 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600" />
+    <input id="maxLs" type="number" value="2000" min="10" step="10"
+           title="Max arrival distance (Ls)" class="w-24 p-2 rounded dark:bg-zinc-800 bg-zinc-100 border border-zinc-400 dark:border-zinc-600" />
+    <button class="px-4 py-2 rounded bg-teal-500 hover:bg-teal-600 transition">Search</button>
+  </form>
+
+  <div id="status" class="text-sm h-6 flex items-center dark:text-zinc-300 text-zinc-700"></div>
+  <div class="w-full overflow-x-auto">
+    <table id="results" class="w-full text-sm hidden">
+      <thead>
+        <tr class="dark:bg-zinc-800 bg-zinc-200">
+          <th class="p-2 text-left">System</th>
+          <th class="p-2">Dist (ly)</th>
+          <th class="p-2">Arr Ls</th>
+          <th class="p-2">Water/ELWs</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const statusEl = $('#status'); const tbody = $('#results tbody'); const table = $('#results');
+const EDSM = 'https://www.edsm.net/api-v1';
+
+// theme toggle
+$('#themeToggle').addEventListener('click', () => {
+  document.documentElement.classList.toggle('dark');
+  document.documentElement.classList.toggle('light');
+});
+
+$('#queryForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  tbody.innerHTML = ''; table.classList.add('hidden'); statusEl.textContent = 'Querying…';
+  const ref = $('#refSystem').value.trim(); const R = +$('#radius').value || 30; const maxLs = +$('#maxLs').value || 2000;
+  try {
+    const sphere = `${EDSM}/sphere-systems?systemName=${encodeURIComponent(ref)}&radius=${R}&showId=1&showCoordinates=1`;
+    const { data: systems } = await axios.get(sphere);
+    if (!systems?.length) throw Error('No systems in radius. Spelling?');
+
+    const colonisable = systems.filter(s => (s.factions?.length ?? 0) === 0 && (s.stations?.length ?? 0) === 0);
+    let hits=[]; let count=0;
+    for (const s of colonisable) {
+      const { data:b } = await axios.get(`${EDSM}/bodies?systemId=${s.id}`); count++;
+      if(count%10===0) statusEl.textContent=`Scanning ${count}/${colonisable.length}`;
+      const bodies = b?.bodies||[];
+      const ww = bodies.filter(x=>x.type==='Water world'||x.subType?.includes('Earth-like'));
+      if(!ww.length) continue;
+      // arrival distance check (use first WW dist as proxy)
+      const ls = ww[0].distanceToArrival??1e9;
+      if(ls>maxLs) continue;
+      hits.push({name:s.name,distance:s.distance,ls,ww:ww.map(x=>x.name.replace(s.name+' ','')).join(', ')});
+    }
+    if(!hits.length){statusEl.textContent='No matches with current filters.';return;}
+    hits.sort((a,b)=>a.distance-b.distance);
+    hits.forEach(h=>{
+      const tr=document.createElement('tr'); tr.className='odd:dark:bg-zinc-800 odd:bg-zinc-100 hover:dark:bg-zinc-700 hover:bg-zinc-300';
+      tr.innerHTML=`<td class="p-2"><a class="underline text-teal-500" target="_blank" href="https://www.edsm.net/en/system?systemName=${encodeURIComponent(h.name)}">${h.name}</a></td><td class="p-2 text-center">${h.distance.toFixed(1)}</td><td class="p-2 text-center">${Math.round(h.ls)}</td><td class="p-2">${h.ww}</td>`;
+      tbody.appendChild(tr);
+    });
+    table.classList.remove('hidden'); statusEl.textContent=`Found ${hits.length} colonisable systems.`;
+  } catch(err){statusEl.textContent=`Error: ${err.message}`;}
+});
+</script>
+</body>
+</html>
