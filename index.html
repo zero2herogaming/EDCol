@@ -123,4 +123,39 @@
             if (!ww.length) continue;
 
             const ls = ww[0].distanceToArrival || 0;
-            if (ls >
+            if (ls > maxLs) continue;
+
+            hits.push({
+              name: sys.name,
+              dist: sys.distance.toFixed(1),
+              ls: Math.round(ls),
+              worlds: ww.map(w => w.name.replace(sys.name + ' ', '')).join(', ')
+            });
+          }
+
+          if (!hits.length) {
+            status.textContent = '✅ API OK – No matching systems found';
+            return;
+          }
+
+          // Step 3: Render table
+          hits.sort((a, b) => a.dist - b.dist);
+          tbody.innerHTML = hits.map(h => `
+            <tr>
+              <td><a href="https://inara.cz/starsystem/?search=${encodeURIComponent(h.name)}" target="_blank">${h.name}</a></td>
+              <td class="text-center">${h.dist}</td>
+              <td class="text-center">${h.ls}</td>
+              <td>${h.worlds}</td>
+            </tr>
+          `).join('');
+          table.classList.remove('hidden');
+          status.textContent = `✅ Found ${hits.length} systems`;
+        } catch (err) {
+          console.error('Error Details:', err);
+          status.textContent = `❌ Error: ${err.message}`;
+        }
+      };
+    })();
+  </script>
+</body>
+</html>
